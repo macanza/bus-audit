@@ -1,7 +1,6 @@
 import streamlit as st
 import os
 import io
-import zipfile
 import urllib.parse
 from datetime import date, datetime, timedelta
 from PIL import Image, ImageOps
@@ -10,375 +9,273 @@ from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.utils import ImageReader
 
-st.set_page_config(page_title="Tirth Yatra Fleet Audit",
+st.set_page_config(page_title="Tirth Yatra Fleet Portal",
                    layout="wide", page_icon="🚌")
 
-STORAGE_DIR = "Bus_Folders"
-os.makedirs(STORAGE_DIR, exist_ok=True)
-
 # -------------------------------------------------------------
-# Session State & Reset Helper
+# Session State for Resetting Form
 # -------------------------------------------------------------
-if "bus_form_key" not in st.session_state:
-    st.session_state["bus_form_key"] = 0
+if "bus_key" not in st.session_state:
+    st.session_state["bus_key"] = 0
 
 
-def start_new_bus():
-    st.session_state["bus_form_key"] += 1
-    st.session_state.pop("last_submission", None)
+def new_bus_reset():
+    st.session_state["bus_key"] += 1
+    st.session_state.pop("last_pdf", None)
     st.rerun()
 
 
-fk = st.session_state["bus_form_key"]
+bk = st.session_state["bus_key"]
 
 # -------------------------------------------------------------
-# High-Definition PDF Engine (Embeds All Images)
+# PDF Engine: Embeds Every Image (2 Large Photos Per Page)
 # -------------------------------------------------------------
 
 
-def build_pdf_with_all_photos(bus, guide, start_d, end_d, photo_records):
-    buffer = io.BytesIO()
-    pdf = canvas.Canvas(buffer, pagesize=A4)
-    page_w, page_h = A4
+def build_photo_pdf(bus, guide, start_d, end_d, photo_list):
+    buf = io.BytesIO()
+    pdf = canvas.Canvas(buf, pagesize=A4)
+    pw, ph = A4
 
-    # --- Page 1: Official Summary Cover Sheet ---
+    # Page 1: Official Cover Sheet
     pdf.setFillColor(colors.HexColor("#0D47A1"))
-    pdf.rect(0, page_h - 75, page_w, 75, fill=True, stroke=False)
+    pdf.rect(0, ph - 70, pw, 70, fill=True, stroke=False)
     pdf.setFillColor(colors.white)
     pdf.setFont("Helvetica-Bold", 17)
-    pdf.drawString(30, page_h - 40, "MUKH MANTRI TIRTH YATRA SCHEME")
+    pdf.drawString(30, ph - 38, "MUKH MANTRI TIRTH YATRA SCHEME")
     pdf.setFont("Helvetica", 10)
-    pdf.drawString(30, page_h - 60,
-                   "Official Transport Department Photo Verification Dossier")
+    pdf.drawString(
+        30, ph - 58, "Punjab Transport Department | Fleet Milestone Verification Dossier")
 
-    # Metadata Card
+    # Metadata Box
     pdf.setFillColor(colors.HexColor("#F0F4F8"))
-    pdf.roundRect(30, page_h - 225, page_w - 60,
-                  130, 6, fill=True, stroke=False)
+    pdf.roundRect(30, ph - 210, pw - 60, 125, 6, fill=True, stroke=False)
     pdf.setFillColor(colors.black)
     pdf.setFont("Helvetica-Bold", 12)
-    pdf.drawString(45, page_h - 120, f"BUS NUMBER: {bus}")
-    pdf.setFont("Helvetica", 11)
-    pdf.drawString(45, page_h - 145, f"Conductor / Team Guide: {guide}")
-    pdf.drawString(45, page_h - 170, f"Trip Duration: {start_d}  to  {end_d}")
-    pdf.drawString(45, page_h - 195,
-                   f"Total Photos Verified & Attached: {len(photo_records)}")
-    pdf.drawString(320, page_h - 195,
-                   f"Date: {datetime.now().strftime('%d-%b-%Y, %I:%M %p')}")
+    pdf.drawString(45, ph - 115, f"BUS REGISTRATION  : {bus}")
+    pdf.setFont("Helvetica", 10)
+    pdf.drawString(45, ph - 140, f"Team Guide / Name : {guide}")
+    pdf.drawString(45, ph - 162, f"Trip Journey Dates: {start_d}  to  {end_d}")
+    pdf.drawString(
+        45, ph - 184, f"Total Photos Attached: {len(photo_list)} Verified Images")
+    pdf.drawString(
+        330, ph - 184, f"Generated: {datetime.now().strftime('%d-%b-%Y, %I:%M %p')}")
 
-    # Checklist Table
-    pdf.setFont("Helvetica-Bold", 12)
-    pdf.drawString(30, page_h - 255, "Verified Photo Manifest:")
-    y = page_h - 280
-    for idx, item in enumerate(photo_records, 1):
+    # Index Checklist
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawString(30, ph - 240, "Attached Milestone Photos Checklist:")
+    y_pos = ph - 260
+    for idx, item in enumerate(photo_list, 1):
         pdf.setFont("Helvetica", 9)
-        pdf.drawString(35, y, f"✓ [{idx:02d}] {item['label']}")
-        y -= 18
-        if y < 60:
+        pdf.drawString(35, y_pos, f"✓ [{idx:02d}] {item['label']}")
+        y_pos -= 17
+        if y_pos < 50:
             break
 
     pdf.showPage()
 
-    # --- Pages 2+: 2 Photos per Page (Large & Clear for Meter Numbers) ---
-    for i in range(0, len(photo_records), 2):
-        # Header banner
+    # Pages 2+: 2 Photos Per Page (Large size for clear odometer numbers)
+    for i in range(0, len(photo_list), 2):
+        # Header banner on image pages
         pdf.setFillColor(colors.HexColor("#0D47A1"))
-        pdf.rect(0, page_h - 40, page_w, 40, fill=True, stroke=False)
+        pdf.rect(0, ph - 35, pw, 35, fill=True, stroke=False)
         pdf.setFillColor(colors.white)
-        pdf.setFont("Helvetica-Bold", 11)
-        pdf.drawString(25, page_h - 25, f"BUS: {bus} | FLEET AUDIT DOSSIER")
-        pdf.setFont("Helvetica", 9)
-        pdf.drawRightString(page_w - 25, page_h - 25,
-                            f"Page {pdf.getPageNumber()}")
+        pdf.setFont("Helvetica-Bold", 10)
+        pdf.drawString(25, ph - 22, f"BUS: {bus} | TRIP PHOTO DOSSIER")
+        pdf.setFont("Helvetica", 8)
+        pdf.drawRightString(pw - 25, ph - 22, f"Page {pdf.getPageNumber()}")
 
-        batch = photo_records[i:i+2]
+        batch = photo_list[i:i+2]
         slots = [
-            (30, page_h - 410, page_w - 60, 350),  # Top slot
-            (30, 40, page_w - 60, 350)             # Bottom slot
+            (30, ph - 395, pw - 60, 345),  # Top Photo Box
+            (30, 30, pw - 60, 345)         # Bottom Photo Box
         ]
 
-        for s_idx, photo in enumerate(batch):
+        for s_idx, p_data in enumerate(batch):
             bx, by, bw, bh = slots[s_idx]
 
-            # Border Card
+            # White Card with Border
             pdf.setFillColor(colors.HexColor("#FAFAFA"))
-            pdf.setStrokeColor(colors.HexColor("#CCCCCC"))
+            pdf.setStrokeColor(colors.HexColor("#D0D7DE"))
             pdf.roundRect(bx, by, bw, bh, 6, fill=True, stroke=True)
 
-            # Label Header inside Card
+            # Dark title strip inside card
             pdf.setFillColor(colors.HexColor("#263238"))
-            pdf.rect(bx, by + bh - 26, bw, 26, fill=True, stroke=False)
+            pdf.rect(bx, by + bh - 24, bw, 24, fill=True, stroke=False)
             pdf.setFillColor(colors.white)
-            pdf.setFont("Helvetica-Bold", 10)
-            pdf.drawString(bx + 12, by + bh - 18, photo["label"][:50])
+            pdf.setFont("Helvetica-Bold", 9)
+            pdf.drawString(bx + 10, by + bh - 17, p_data["label"][:55])
 
             # Draw Image
             try:
-                if os.path.exists(photo["path"]):
-                    with Image.open(photo["path"]) as p_img:
-                        p_img = ImageOps.exif_transpose(p_img)
-                        if p_img.mode in ("RGBA", "P"):
-                            p_img = p_img.convert("RGB")
+                img = Image.open(p_data["file_obj"])
+                # Prevents rotated/upside-down photos
+                img = ImageOps.exif_transpose(img)
+                if img.mode in ("RGBA", "P"):
+                    img = img.convert("RGB")
+                img.thumbnail((1400, 1400), Image.Resampling.LANCZOS)
 
-                        max_w = bw - 20
-                        max_h = bh - 40
-                        img_w, img_h = p_img.size
-                        ratio = min(max_w / img_w, max_h / img_h)
-                        dest_w = img_w * ratio
-                        dest_h = img_h * ratio
-                        dest_x = bx + 10 + (max_w - dest_w) / 2
-                        dest_y = by + 10 + (max_h - dest_h) / 2
+                max_w = bw - 20
+                max_h = bh - 38
+                iw, ih = img.size
+                ratio = min(max_w / iw, max_h / ih)
+                dest_w = iw * ratio
+                dest_h = ih * ratio
+                dest_x = bx + 10 + (max_w - dest_w) / 2
+                dest_y = by + 8 + (max_h - dest_h) / 2
 
-                        img_buf = io.BytesIO()
-                        p_img.save(img_buf, format="JPEG", quality=85)
-                        img_buf.seek(0)
-                        pdf.drawImage(ImageReader(img_buf), dest_x,
-                                      dest_y, width=dest_w, height=dest_h)
-            except Exception as err:
+                img_stream = io.BytesIO()
+                img.save(img_stream, format="JPEG", quality=80)
+                img_stream.seek(0)
+                pdf.drawImage(ImageReader(img_stream), dest_x,
+                              dest_y, width=dest_w, height=dest_h)
+            except Exception as e:
                 pdf.setFillColor(colors.red)
-                pdf.setFont("Helvetica", 10)
-                pdf.drawString(bx + 20, by + bh / 2,
-                               f"Render Error: {str(err)}")
+                pdf.setFont("Helvetica", 9)
+                pdf.drawString(bx + 15, by + bh / 2,
+                               f"Error rendering photo: {e}")
 
         pdf.showPage()
 
     pdf.save()
-    buffer.seek(0)
-    return buffer
-
-
-def create_folder_zip(folder_path):
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for root, _, files in os.walk(folder_path):
-            for f in files:
-                fp = os.path.join(root, f)
-                zf.write(fp, os.path.relpath(fp, folder_path))
-    zip_buffer.seek(0)
-    return zip_buffer
+    buf.seek(0)
+    return buf
 
 
 # -------------------------------------------------------------
-# Top Navigation & Add New Bus Button
+# App Header & Controls
 # -------------------------------------------------------------
-c_head, c_new_bus = st.columns([3, 1])
-with c_head:
-    st.title("🚌 Tirth Yatra Photo Portal")
-with c_new_bus:
+col_h, col_reset = st.columns([3, 1])
+with col_h:
+    st.title("🚌 Tirth Yatra - Fleet Photo Portal")
+with col_reset:
     st.write("")
-    if st.button("➕ ADD NEW BUS (CLEAR ALL)", type="primary", use_container_width=True):
-        start_new_bus()
+    if st.button("➕ START NEW BUS (CLEAR ALL)", type="primary", use_container_width=True):
+        new_bus_reset()
 
-# Show Success Bar if Bus was saved
-if "last_submission" in st.session_state:
-    sub = st.session_state["last_submission"]
+# Success Banner with Download & WhatsApp
+if "last_pdf" in st.session_state:
+    sub = st.session_state["last_pdf"]
     st.success(
-        f"✅ **{sub['bus_no']}** Saved with **{sub['total_saved']} Photos**!")
+        f"✅ Success! **{sub['bus']}** compiled with **{sub['total']} Photos** into PDF Dossier.")
 
-    c1, c2, c3 = st.columns([1.5, 1.5, 1])
-    with c1:
+    c_dl, c_wa = st.columns(2)
+    with c_dl:
         st.download_button(
-            label="📄 Download Photo PDF (With All Images)",
-            data=sub["pdf_data"],
-            file_name=f"{sub['bus_no']}_Full_Photo_Dossier.pdf",
+            label=f"📄 1. DOWNLOAD {sub['bus']} PHOTO PDF",
+            data=sub["data"],
+            file_name=f"{sub['bus']}_Photo_Dossier.pdf",
             mime="application/pdf",
+            type="primary",
             use_container_width=True
         )
-    with c2:
+    with c_wa:
         st.link_button(
-            label="📲 Share Verification on WhatsApp",
+            label="📲 2. OPEN WHATSAPP TO SHARE",
             url=sub["wa_url"],
             use_container_width=True
         )
-    with c3:
-        if st.button("Start Next Bus", key="start_next"):
-            start_new_bus()
+    st.info("💡 **How to share on phone:** Tap button 1 to download the PDF, then tap button 2 to open WhatsApp, tap the paperclip (📎) ➔ **Document**, and send your downloaded PDF.")
     st.divider()
 
 # -------------------------------------------------------------
-# Main Form (st.form)
+# Main Photo Submission Form
 # -------------------------------------------------------------
-with st.form("main_trip_form", clear_on_submit=False):
-    st.subheader("📝 Bus Details & Milestones")
+with st.form("yatra_entry_form", clear_on_submit=False):
+    st.subheader("Bus Identification")
+    c1, c2 = st.columns(2)
+    with c1:
+        bus_no = st.text_input(
+            "Bus Number", placeholder="e.g. AR 20 A 6004", key=f"b_{bk}").strip().upper()
+    with c2:
+        guide_name = st.text_input("Conductor / Team Guide Name",
+                                   placeholder="e.g. Gurpreet Singh", key=f"g_{bk}").strip()
 
-    col_b, col_g = st.columns(2)
-    with col_b:
-        bus_input = st.text_input(
-            "Enter Bus Number", placeholder="e.g. AR 20 A 6004 or PB 03 X 1234", key=f"bus_{fk}").strip().upper()
-    with col_g:
-        guide_input = st.text_input(
-            "Conductor / Team Guide Name", placeholder="e.g. Gurpreet Singh", key=f"guide_{fk}").strip()
-
-    col_d1, col_d2 = st.columns(2)
-    with col_d1:
-        trip_start = st.date_input(
-            "Trip Start Date", value=date.today(), key=f"d1_{fk}")
-    with col_d2:
-        trip_end = st.date_input(
-            "Trip End Date", value=date.today() + timedelta(days=3), key=f"d2_{fk}")
+    c3, c4 = st.columns(2)
+    with c3:
+        d_start = st.date_input(
+            "Trip Start Date", value=date.today(), key=f"ds_{bk}")
+    with c4:
+        d_end = st.date_input(
+            "Trip End Date", value=date.today() + timedelta(days=3), key=f"de_{bk}")
 
     st.markdown("---")
-
-    # 1. Odometers
-    st.markdown("#### ⏱️ 1. Odometer Photos (4 Photos Required)")
+    st.markdown("#### ⏱️ 1. Odometer Photos (4 Required)")
     st.caption(
-        "Upload Punjab Departure, Destination Arrival, Return Departure, and Final Arrival meter readings.")
-    odo_uploads = st.file_uploader(
-        "Select Odometer Photos",
-        type=["jpg", "jpeg", "png"],
-        accept_multiple_files=True,
-        key=f"odo_{fk}"
-    )
+        "Punjab Start ➔ Destination Arrival ➔ Return Departure ➔ Punjab Final Arrival")
+    f_odos = st.file_uploader("Select Odometer Photos", type=[
+                              "jpg", "jpeg", "png"], accept_multiple_files=True, key=f"odo_{bk}")
 
     st.markdown("---")
-
-    # 2. Group Photos
-    st.markdown("#### 👥 2. Yatri Group Photos (4 Photos Required)")
-    st.caption(
-        "Upload Banner Photo, Inside Cabin Photo, Return Group Photo, and MLA/VIP Photo.")
-    group_uploads = st.file_uploader(
-        "Select Group Photos",
-        type=["jpg", "jpeg", "png"],
-        accept_multiple_files=True,
-        key=f"grp_{fk}"
-    )
+    st.markdown("#### 👥 2. Yatri Group Photos (4 Required)")
+    st.caption("Departure Banner ➔ Inside Cabin ➔ Return Group ➔ MLA / VIP Photo")
+    f_groups = st.file_uploader("Select Group Photos", type=[
+                                "jpg", "jpeg", "png"], accept_multiple_files=True, key=f"grp_{bk}")
 
     st.markdown("---")
-
-    # 3. Steel Glass & Refreshments
     st.markdown("#### 🥤 3. Steel Glass & Refreshment Distribution")
-    dist_uploads = st.file_uploader(
-        "Select Distribution Photos",
-        type=["jpg", "jpeg", "png"],
-        accept_multiple_files=True,
-        key=f"dist_{fk}"
-    )
+    f_dists = st.file_uploader("Select Distribution Photos", type=[
+                               "jpg", "jpeg", "png"], accept_multiple_files=True, key=f"dst_{bk}")
 
     st.markdown("---")
-
-    # 4. Meals
-    st.markdown("#### 🍽️ 4. Passenger Meals (Breakfast, Lunch, Dinner)")
-    meal_uploads = st.file_uploader(
-        "Select Meals Photos",
-        type=["jpg", "jpeg", "png"],
-        accept_multiple_files=True,
-        key=f"meal_{fk}"
-    )
+    st.markdown("#### 🍽️ 4. Passenger Meals")
+    f_meals = st.file_uploader("Select Meals Photos (Breakfast, Lunch, Dinner)", type=[
+                               "jpg", "jpeg", "png"], accept_multiple_files=True, key=f"mel_{bk}")
 
     st.markdown("---")
     submitted = st.form_submit_button(
-        "💾 SAVE ALL PHOTOS & BUILD FULL PDF DOSSIER", type="primary", use_container_width=True)
+        "💾 GENERATE COMPLETE PHOTO PDF DOSSIER", type="primary", use_container_width=True)
 
 # -------------------------------------------------------------
-# Submission Handler
+# Compile PDF on Submit
 # -------------------------------------------------------------
 if submitted:
-    if not bus_input:
-        st.error("❌ Please enter the Bus Number first!")
-    elif not guide_input:
-        st.error("❌ Please enter the Conductor / Guide Name!")
-    elif not odo_uploads and not group_uploads and not dist_uploads and not meal_uploads:
-        st.error(
-            "❌ No photos selected, or files are still uploading. Please wait for files to show completely.")
+    if not bus_no:
+        st.error("❌ Please enter the Bus Number.")
+    elif not guide_name:
+        st.error("❌ Please enter the Conductor / Guide Name.")
+    elif not f_odos and not f_groups and not f_dists and not f_meals:
+        st.error("❌ No photos selected! Please pick photos before clicking Save.")
     else:
-        with st.spinner("⚡ Resizing photos and building multi-page Photo PDF..."):
-            bus_clean = bus_input.replace(" ", "_")
-            batch_folder = f"{trip_start}_to_{trip_end}"
-            save_path = os.path.join(STORAGE_DIR, batch_folder, bus_clean)
-            os.makedirs(save_path, exist_ok=True)
+        with st.spinner("⏳ Compressing photos and compiling multi-page Photo PDF..."):
+            all_photos = []
 
-            photo_manifest = []
+            def collect(files, labels, category):
+                for idx, f in enumerate(files, 1):
+                    lbl = labels[idx-1] if idx - \
+                        1 < len(labels) else f"{category} #{idx}"
+                    all_photos.append({"label": lbl, "file_obj": f})
 
-            def save_images(files, category, label_list):
-                for idx, f in enumerate(files, start=1):
-                    with Image.open(f) as img:
-                        img = ImageOps.exif_transpose(img)
-                        if img.mode in ("RGBA", "P"):
-                            img = img.convert("RGB")
-                        img.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
-                        f_name = f"{category}_{idx}.jpg"
-                        full_p = os.path.join(save_path, f_name)
-                        img.save(full_p, "JPEG", quality=82, optimize=True)
-                        lbl = label_list[idx-1] if idx - \
-                            1 < len(label_list) else f"{category} #{idx}"
-                        photo_manifest.append({"label": lbl, "path": full_p})
+            collect(f_odos, ["1. Punjab Departure Odometer", "2. Destination Arrival Odometer",
+                    "3. Return Start Odometer", "4. Punjab Final Arrival Odometer"], "Odometer")
+            collect(f_groups, ["1. Departure Banner Group Photo", "2. Inside Cabin Yatri Group Photo",
+                    "3. Destination Return Group Photo", "4. MLA / VIP Group Photo"], "Group Photo")
+            collect(f_dists, ["1. Steel Glass Distribution",
+                    "2. Refreshment Distribution"], "Distribution")
+            collect(f_meals, ["1. Breakfast Meal Photo",
+                    "2. Lunch Meal Photo", "3. Dinner Meal Photo"], "Meal Photo")
 
-            save_images(odo_uploads, "01_Odometer", [
-                "1. Punjab Departure Odometer Reading",
-                "2. Destination Arrival Odometer Reading",
-                "3. Return Start Odometer Reading",
-                "4. Punjab Final Arrival Odometer Reading"
-            ])
-            save_images(group_uploads, "02_Group", [
-                "1. Departure Banner Group Photo",
-                "2. Inside Cabin Yatri Group Photo",
-                "3. Destination Return Group Photo",
-                "4. MLA / VIP Group Photo"
-            ])
-            save_images(dist_uploads, "03_Distribution", [
-                "1. Steel Glass Distribution Photo",
-                "2. Refreshment Distribution Photo"
-            ])
-            save_images(meal_uploads, "04_Meals", [
-                "1. Breakfast Photo",
-                "2. Lunch Photo",
-                "3. Dinner Photo"
-            ])
+            # Build full image PDF in memory
+            pdf_data = build_photo_pdf(
+                bus_no, guide_name, d_start, d_end, all_photos)
 
-            # Generate PDF with embedded photos
-            pdf_bytes = build_pdf_with_all_photos(
-                bus_input, guide_input, trip_start, trip_end, photo_manifest)
-
-            # Generate WhatsApp text
+            # Pre-filled WhatsApp message
             wa_text = (
-                f"🚌 *MUKH MANTRI TIRTH YATRA REPORT*\n"
+                f"🚌 *MUKH MANTRI TIRTH YATRA - TRIP REPORT*\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"📋 *Bus Number:* {bus_input}\n"
-                f"👤 *Team Guide:* {guide_input}\n"
-                f"📅 *Dates:* {trip_start} to {trip_end}\n"
-                f"📸 *Photos Logged:* {len(photo_manifest)} Photos Verified\n"
-                f"✅ Full Photo PDF Dossier Generated.\n"
+                f"📋 *Bus Number:* {bus_no}\n"
+                f"👤 *Team Guide:* {guide_name}\n"
+                f"📅 *Dates:* {d_start} to {d_end}\n"
+                f"📸 *Photos Attached:* {len(all_photos)} Images Inside PDF\n"
+                f"✅ Full Photo PDF Dossier Generated Successfully.\n"
                 f"━━━━━━━━━━━━━━━━━━━━"
             )
-            wa_url = f"https://api.whatsapp.com/send?text={urllib.parse.quote(wa_text)}"
+            wa_link = f"https://api.whatsapp.com/send?text={urllib.parse.quote(wa_text)}"
 
-            st.session_state["last_submission"] = {
-                "bus_no": bus_input,
-                "total_saved": len(photo_manifest),
-                "pdf_data": pdf_bytes,
-                "wa_url": wa_url
+            st.session_state["last_pdf"] = {
+                "bus": bus_no,
+                "total": len(all_photos),
+                "data": pdf_data,
+                "wa_url": wa_link
             }
             st.rerun()
-
-# -------------------------------------------------------------
-# Section: Live Bus Folders on Server
-# -------------------------------------------------------------
-st.markdown("---")
-st.subheader("📁 Saved Bus Folders on Server")
-
-batches = [d for d in os.listdir(STORAGE_DIR) if os.path.isdir(
-    os.path.join(STORAGE_DIR, d))]
-if not batches:
-    st.info("No bus folders created yet. Upload your first bus above.")
-else:
-    for b_batch in sorted(batches, reverse=True):
-        batch_full = os.path.join(STORAGE_DIR, b_batch)
-        buses = [b for b in os.listdir(batch_full) if os.path.isdir(
-            os.path.join(batch_full, b))]
-
-        with st.expander(f"🗓️ Batch: {b_batch} ({len(buses)} Buses Completed)", expanded=True):
-            cols = st.columns(3)
-            for i, b_name in enumerate(sorted(buses)):
-                bus_dir = os.path.join(batch_full, b_name)
-                photo_count = len(
-                    [f for f in os.listdir(bus_dir) if f.endswith('.jpg')])
-                with cols[i % 3]:
-                    st.write(f"🚌 **{b_name}** ({photo_count} photos)")
-                    zip_data = create_folder_zip(bus_dir)
-                    st.download_button(
-                        label=f"📥 Download {b_name} (.ZIP)",
-                        data=zip_data,
-                        file_name=f"{b_name}_Photos.zip",
-                        mime="application/zip",
-                        key=f"dl_{b_batch}_{b_name}"
-                    )
